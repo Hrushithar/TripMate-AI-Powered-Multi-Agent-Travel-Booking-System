@@ -7,14 +7,25 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from backend import run_travel_agent, resume_travel_agent
 
-# This is kept from the original project to allow the existing synchronous
-# agent functions to call async MCP helpers inside FastAPI.
-import nest_asyncio
-
-nest_asyncio.apply()
+# NOTE:
+# The LangGraph agents in backend.py are synchronous and internally call
+# asyncio.run() for the async MCP helpers. Running them directly inside an
+# async FastAPI route would fail with
+# "asyncio.run() cannot be called from a running event loop".
+#
+# nest_asyncio used to patch that, but it breaks asyncio.current_task(), which
+# makes sniffio/anyio unable to detect the running loop. Every anyio thread
+# offload then raises NoEventLoopError, so Starlette's StaticFiles returns 500
+# for /static/style.css and /static/script.js and the page shows raw HTML only.
+#
+# Instead, the blocking agent calls are offloaded to a worker thread through
+# run_in_threadpool(). The worker thread has no running loop of its own, so the
+# asyncio.run() calls inside backend.py work natively and anyio keeps working
+# for the rest of the app (static files, MCP transports, httpx, ...).
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -70,7 +81,8 @@ async def travel_planner(request_data: TravelRequest):
                 },
             )
 
-        result = run_travel_agent(
+        result = await run_in_threadpool(
+            run_travel_agent,
             user_input=user_message,
             thread_id=request_data.thread_id,
         )
@@ -107,7 +119,8 @@ async def approve_travel_plan(request_data: ApprovalRequest):
                 },
             )
 
-        result = resume_travel_agent(
+        result = await run_in_threadpool(
+            resume_travel_agent,
             thread_id=request_data.thread_id,
             approved=request_data.approved,
             feedback=request_data.feedback,
