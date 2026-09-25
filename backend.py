@@ -52,15 +52,28 @@ def get_database_url():
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
+# Free Groq model used by every agent (free tier, no payment needed).
+# Override in .env with GROQ_MODEL=<model-id>. Verified free alternatives:
+#   openai/gpt-oss-20b  -> faster, shorter itineraries
+#   allam-2-7b          -> fastest, smallest (7B) reasoning
+#   qwen/qwen3.8-27b    -> needs GROQ_MAX_TOKENS=900 (free OTPM limit is 1000)
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+
+# Optional output cap. Leave unset for gpt-oss/allam models; set it (for example
+# 900) when a free-tier model rejects the request with an OTPM rate limit.
+GROQ_MAX_TOKENS = os.getenv("GROQ_MAX_TOKENS")
+GROQ_MAX_TOKENS = int(GROQ_MAX_TOKENS) if GROQ_MAX_TOKENS else None
+
 if not GROQ_API_KEY:
     raise ValueError("GROQ_API_KEY is missing. Please add it to your .env file.")
 
 # =========================
-# LLM - original model kept
+# LLM - free Groq model (GROQ_MODEL)
 # =========================
 llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
+    model=GROQ_MODEL,
     api_key=GROQ_API_KEY,
+    max_tokens=GROQ_MAX_TOKENS,
 )
 
 # =========================
@@ -143,6 +156,23 @@ def _empty_constraints() -> dict[str, Any]:
         "travel_style": "",
         "special_preferences": [],
     }
+
+
+def _excerpt(text: Any, limit: int = 1500) -> str:
+    """
+    Trim an agent result before it is embedded in another agent prompt.
+
+    Groq's free tier rejects a request when its total size exceeds the
+    per-minute token limit. Live search output and the draft itinerary can grow
+    large, so the combined prompt is capped to keep every agent request small.
+    """
+
+    value = str(text or "").strip()
+
+    if len(value) <= limit:
+        return value
+
+    return f"{value[:limit]}\n... [{len(value) - limit} characters trimmed for the free token limit]"
 
 
 # =========================
@@ -457,13 +487,13 @@ Trip Constraints:
 {state.get('trip_constraints', {})}
 
 Flight Results:
-{state.get('flight_results', '')}
+{_excerpt(state.get('flight_results', ''), 1500)}
 
 Hotel Results:
-{state.get('hotel_results', '')}
+{_excerpt(state.get('hotel_results', ''), 1500)}
 
 Weather Results:
-{state.get('weather_results', '')}
+{_excerpt(state.get('weather_results', ''), 1000)}
 
 Return:
 1. Estimated cost categories
@@ -502,16 +532,16 @@ Trip Constraints:
 {state.get('trip_constraints', {})}
 
 Flight Results:
-{state.get('flight_results', '')}
+{_excerpt(state.get('flight_results', ''), 1500)}
 
 Hotel Results:
-{state.get('hotel_results', '')}
+{_excerpt(state.get('hotel_results', ''), 1500)}
 
 Weather Results:
-{state.get('weather_results', '')}
+{_excerpt(state.get('weather_results', ''), 1000)}
 
 Budget Results:
-{state.get('budget_results', '')}
+{_excerpt(state.get('budget_results', ''), 1800)}
 
 Make the itinerary practical, budget-aware, and easy to follow.
 Create a clear draft that is ready for human review.
@@ -593,19 +623,19 @@ Supervisor Constraints:
 {state.get('trip_constraints', {})}
 
 Flights:
-{state.get('flight_results', '')}
+{_excerpt(state.get('flight_results', ''), 1500)}
 
 Hotels:
-{state.get('hotel_results', '')}
+{_excerpt(state.get('hotel_results', ''), 1500)}
 
 Weather:
-{state.get('weather_results', '')}
+{_excerpt(state.get('weather_results', ''), 1000)}
 
 Budget Analysis:
-{state.get('budget_results', '')}
+{_excerpt(state.get('budget_results', ''), 1800)}
 
 Draft Itinerary:
-{state.get('itinerary', '')}
+{_excerpt(state.get('itinerary', ''), 2200)}
 
 Format the final answer beautifully using these sections:
 1. Trip Summary

@@ -31,6 +31,13 @@ AVIATION_STACK_API_KEY = (
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
+# Kept in sync with backend.py through the shared GROQ_MODEL env value.
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+
+# Optional output cap, see the note in backend.py.
+_GROQ_MAX_TOKENS = os.getenv("GROQ_MAX_TOKENS")
+GROQ_MAX_TOKENS = int(_GROQ_MAX_TOKENS) if _GROQ_MAX_TOKENS else None
+
 WEATHER_SERVER_PATH = BASE_DIR / "custom_weather_mcp_server.py"
 UVX_COMMAND = shutil.which("uvx") or "uvx"
 
@@ -66,8 +73,9 @@ def _subprocess_env(**updates: str | None) -> dict[str, str]:
 # =========================================================
 
 llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
+    model=GROQ_MODEL,
     api_key=_require_env("GROQ_API_KEY", GROQ_API_KEY),
+    max_tokens=GROQ_MAX_TOKENS,
 )
 
 
